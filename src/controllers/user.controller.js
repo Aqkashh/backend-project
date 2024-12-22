@@ -1,14 +1,203 @@
 import { asyncHandler } from "../utils/asyncHAndler.js";
+import {ApiError} from "../utils/ApiError.js"
+import {User} from "../models/user.model.js"
+import {uploadOnCloudinary} from "../utils/cloudinary.js"
+import { ApiResponse } from "../utils/ApiRespomse.js";
+
+
+
+const generateAccessAndRefreshTokens = async(userId)=>{
+
+  try 
+  // making user which is distinguish by userid 
+  { const user = await User.findById(userId)
+
+    // now access and refresh token of user is created
+  const accessToken = user.generateAccessToken()
+  const refreshToken = user.generateRefreshToken()
+
+  // saving refresh token in DB
+
+   user.refreshToken= refreshToken
+   await user.save({validateBeforeSave:false})
+
+   return {accessToken,refreshToken}
+    
+  } catch (error) {
+    throw new ApiError(500,"something went wrong genereting token");
+    
+     }
+}
 
 
 
 const registerUser = asyncHandler (async (req,res)=>
     {
-     res.status(200).json({
-        message :"ok"
-     })
+
+        // get details from user 
+
+        const {fullname, email, username , password }= req.body 
+        console.log("email:" ,email );
+        
+        if (fullname ===""){
+            throw new ApiError(400,"fullname is required ")
+        }
+        if (email ===""){
+            throw new ApiError(400,"email is required ")
+        }
+        if (username ===""){
+            throw new ApiError(400,"username is required ")
+        }
+        if (password ===""){
+            throw new ApiError(400,"password is required ")
+        }
+
+  const existedUser = await User.findOne({
+    $or: [{username}, { email }]
+  })
+      if (existedUser){
+        throw new ApiError(409," user with email and username is existed ")
+      }
+
+// yha se cloudinary wala kaam => phle localpath liye=> phir us local path ko cloudinary pe daal diye , most importnat is to use if statement ki local path hai bhi ya nhi .
+console.log("Files received:", req.files);
+    const avatarLocalPath = req.files?.avatar?.[0]?.path;
+    const coverimageLocalPath = req.files?.coverimage?.[0]?.path;
+    if (!avatarLocalPath){
+        throw new ApiError(400,"avatar file is required")
+       }
+
+   const avatar = await  uploadOnCloudinary(avatarLocalPath);
+   const coverimage = await uploadOnCloudinary(coverimageLocalPath);
+   if (!avatar){
+    throw new ApiError(400,"avatar file is required")
+   }
+
+
+//    all work done => upload the registered data to DB 
+// with the help of user.
+ 
+const user = await User.create({
+  fullname,
+  avatar:avatar.url,
+  coverimage:coverimage?.url||" ",
+  email,
+  password,
+  username: username.toLowerCase()
 })
+const createdUser = await User.findById(user._id).select(
+    "-password -refreshTokens"
+)
+ if (!createdUser){
+    throw new ApiError(500,"something went wrong while registering the user `")
+ }
+
+ return res.status(201).json(
+    new ApiResponse(200,createdUser,"user registered successfully")
+ )
+})
+
+
+// login
+
+const loginUser = asyncHandler (async (req,res)=>{
+  //req body=> data
+  //username or email,
+  //find the user 
+  // password check 
+  // access or refresh token 
+  // send cookie 
+  
+
+
+
+  // email ,username , password taken here
+  const { email ,username,password}= req.body
+ 
+
+  // checking if usernmane and email field is filled 
+  if (!username || !email){
+    throw new ApiError(400," username and email is required ")
+  }
+
+
+  // finding one of the field in db  using mongoose operator $or (here use User.findone ) and store it in user 
+ const user = await User.findOne({
+    $or:[{username },{ email}]
+  })
+
+
+// check if user is existed if not => error 
+ if (!user){
+throw new ApiError ( 404 , "user does not exist ")}
+
+
+// check for password pass the password from req.body to our function  tthis will return true or false 
+const isPasswordValid = await user.isPasswordCorrect(password)
+
+if (!isPasswordValid){
+    throw new ApiError(401,"invalid credentials")
+}
+
+
+// generation of access and refresh token 
+
+const { accessToken,refreshToken}=await generateAccessAndRefreshTokens(user._id)
+
+
+// now we have to send cokies => made a loggedinuser which have access to all field except password or refresh token 
+
+const loggedInUser= User.findById(user._id).select("-password -refreshToken")
+
+
+// makking cookies => use option => by default anyone can modify cookies => by using httponly true and secure true it can only modified ffrom server 
+const options= {
+  httpOnly: true ,
+  secure:true
+}
+return res
+.status(200)
+.cookies("accessToken",accessToken,options)
+.cookies("refreshToken",refreshToken,options)
+.json(
+  new ApiResponse(
+   200,
+    {
+      user:loggedInUser,accessToken,refreshToken
+    },
+    "user logged in succesfully"
+  )
+)
+
+})
+//  LOGOUT USER=> remove cookies and reset refresh token 
+const logoutUser= asyncHandler(async(req,res)=>{
+User.findByIdAndUpdate(
+  req.user._id,
+  {
+        $set :{
+         refreshTokens: undefined 
+             }
+ },
+  {
+    new:true
+  }
+)
+  const options= {
+    httpOnly: true ,
+    secure:true
+
+  }
+  return res 
+  .status(200)
+  .clearCookies('accessToken',options)
+  .clearCookies('refreshToken',options)
+  .json (new ApiResponse(200,{},"user logged out "))
+
+ })
 
 export  {
     registerUser,
-}
+    loginUser,
+    logoutUser
+} 

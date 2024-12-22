@@ -1,6 +1,7 @@
 import mongoose  from "mongoose";
 import jwt  from "jsonwebtoken";
 import bcrypt from "bcrypt"
+const {Schema}=mongoose;
 const userSchema = new mongoose.Schema(
     {
       username:
@@ -56,19 +57,21 @@ const userSchema = new mongoose.Schema(
     }
 
 )
-
+// this is pre hook , used to encrypt the password.
 userSchema.pre("save",async function (next) {
   if (!this.isModified("password")) return next();
-  this.password=bcrypt.hash(this.password,10)
+  this.password=await bcrypt.hash(this.password,10)
   next()
 })
 
+// in method we made our own isPasswordCorrect to Compare  encrypted and saved password in DB
 userSchema.methods.isPasswordCorrect = async function (password){
 
  return await bcrypt.compare(password, this.password)
 
 }
 
+//Access token generation .
 userSchema.methods.generateAccessToken = function(){
    return jwt.sign(
     {
@@ -83,6 +86,8 @@ userSchema.methods.generateAccessToken = function(){
     }
   )
 }
+
+// refresh token generation
 userSchema.methods.generateRefreshToken = function(){
   return jwt.sign(
     {
