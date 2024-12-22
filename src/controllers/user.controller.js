@@ -77,7 +77,7 @@ console.log("Files received:", req.files);
 //    all work done => upload the registered data to DB 
 // with the help of user.
  
-const user = await User.create({
+const user = await User.create({// to save new user in db
   fullname,
   avatar:avatar.url,
   coverimage:coverimage?.url||" ",
@@ -85,13 +85,17 @@ const user = await User.create({
   password,
   username: username.toLowerCase()
 })
+
+  // ._id us given by mongo db to user which is unique and used to identify user so that we can use it to find user
+  // .select is used to select the field which we want to show to user but here we are not showing password and refresh token to user by using - sign
+
 const createdUser = await User.findById(user._id).select(
     "-password -refreshTokens"
 )
  if (!createdUser){
     throw new ApiError(500,"something went wrong while registering the user `")
  }
-
+// here we are sending the response to user that user is registered successfully
  return res.status(201).json(
     new ApiResponse(200,createdUser,"user registered successfully")
  )
@@ -116,7 +120,7 @@ const loginUser = asyncHandler (async (req,res)=>{
  
 
   // checking if usernmane and email field is filled 
-  if (!username || !email){
+  if (!username && !email){
     throw new ApiError(400," username and email is required ")
   }
 
@@ -172,6 +176,8 @@ return res
 })
 //  LOGOUT USER=> remove cookies and reset refresh token 
 const logoutUser= asyncHandler(async(req,res)=>{
+  // find user by id and set refresh token to undefined
+  // findByIDAndUpdate is function of mongoose which is used to find user by id and update the field which we want to update can be used usin User only.
 User.findByIdAndUpdate(
   req.user._id,
   {
@@ -179,10 +185,11 @@ User.findByIdAndUpdate(
          refreshTokens: undefined 
              }
  },
+  // {new:true} is used to return the updated user
   {
     new:true
   }
-)
+)// here we are clearing the cookies by using clearcookies method and passing the name of cookies and options which we have used while creating the cookies
   const options= {
     httpOnly: true ,
     secure:true
