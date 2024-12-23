@@ -3,14 +3,15 @@ import {ApiError} from "../utils/ApiError.js"
 import {User} from "../models/user.model.js"
 import {uploadOnCloudinary} from "../utils/cloudinary.js"
 import { ApiResponse } from "../utils/ApiRespomse.js";
-
+import mongoose from "mongoose"
+import jwt from "jsonwebtoken"
 
 
 const generateAccessAndRefreshTokens = async(userId)=>{
-
-  try 
+ try 
   // making user which is distinguish by userid 
   { const user = await User.findById(userId)
+    if (!user) throw new ApiError(404, "User not found");
 
     // now access and refresh token of user is created
   const accessToken = user.generateAccessToken()
@@ -24,12 +25,11 @@ const generateAccessAndRefreshTokens = async(userId)=>{
    return {accessToken,refreshToken}
     
   } catch (error) {
+    console.error("Error generating tokens:", error);
     throw new ApiError(500,"something went wrong genereting token");
     
      }
 }
-
-
 
 const registerUser = asyncHandler (async (req,res)=>
     {
@@ -101,9 +101,7 @@ const createdUser = await User.findById(user._id).select(
  )
 })
 
-
 // login
-
 const loginUser = asyncHandler (async (req,res)=>{
   //req body=> data
   //username or email,
@@ -146,30 +144,31 @@ if (!isPasswordValid){
 
 // generation of access and refresh token 
 
-const { accessToken,refreshToken}=await generateAccessAndRefreshTokens(user._id)
+const {   accessToken,refreshToken}=await generateAccessAndRefreshTokens(user._id)
 
 
 // now we have to send cokies => made a loggedinuser which have access to all field except password or refresh token 
 
-const loggedInUser= User.findById(user._id).select("-password -refreshToken")
+const loggedInUser= await User.findById(user._id).select("-password -refreshToken")
 
 
 // makking cookies => use option => by default anyone can modify cookies => by using httponly true and secure true it can only modified ffrom server 
-const options= {
-  httpOnly: true ,
-  secure:true
+const options = {
+  httpOnly: true,
+  secure: true
 }
+
 return res
 .status(200)
-.cookies("accessToken",accessToken,options)
-.cookies("refreshToken",refreshToken,options)
+.cookie("accessToken", accessToken, options)
+.cookie("refreshToken", refreshToken, options)
 .json(
   new ApiResponse(
-   200,
-    {
-      user:loggedInUser,accessToken,refreshToken
-    },
-    "user logged in succesfully"
+      200, 
+      {
+          user: loggedInUser, accessToken, refreshToken
+      },
+      "User logged In Successfully"
   )
 )
 
@@ -197,10 +196,49 @@ User.findByIdAndUpdate(
   }
   return res 
   .status(200)
-  .clearCookies('accessToken',options)
-  .clearCookies('refreshToken',options)
+  .clearCookie('accessToken',options)
+  .clearCookie('refreshToken',options)
   .json (new ApiResponse(200,{},"user logged out "))
 
+ })
+
+
+ const refreshAccessToken = asyncHandler(async(req,res)=>{
+ // getting cookies from req and body(req for web and body for mobile)
+ const incomingrefreshToken = req.cookies.refreshToken|| req.body.refreshToken
+ 
+ if(!incomingrefreshToken){
+   throw new ApiError(400,"Unauthorized request")
+ }
+
+try {
+  const decodedToken= jwt.verify(incomingrefreshToken,process.env.REFRESH_TOKEN_SECRET)
+  
+  
+  const user = await User.findById(decodedToken?.userId)
+  if (!user){
+    throw new ApiError(401,"invalid refresh token")
+  }
+  if (incomingrefreshToken !== user?.refreshToken){
+    throw new ApiError(401,"invalid refresh token")
+  
+  }
+  const options = {
+  httpOnly:true,
+  secure:true
+  
+  }
+  const {accessToken,newrefreshToken}=await generateAccessAndRefreshTokens(user._id)
+  return res 
+  .status(200)
+  .clearCookie('accessToken',accessToken,options)
+  .clearCookie('refreshToken',newrefreshToken,options)
+  .json(new ApiResponse(200,{accessToken,newrefreshToken},"tokens refreshed successfully"))
+} catch (error) 
+  {
+  console.error("Error refreshing tokens:", error);
+  throw new ApiError(401, "Something went wrong refreshing tokens");
+  }
  })
 
 export  {
