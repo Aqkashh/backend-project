@@ -344,7 +344,74 @@ const updateUserCoverimage = asyncHandler(async(req,res)=>{
   return res .status(200).json(new ApiResponse(200,user,"coverimage updated successfully"))
   })
 
+const getUserChannelProfile = asyncHandler(async(req,res)=>{
 
+ const {username }=req.params // to get username from url
+if (!username?.trim()){
+  throw new ApiError(400,"username is missing")
+}
+
+const channel = await User.aggregate([
+{
+  $match:{   // match is used for filtering the data , here the username which we have is from url and  matched with username in db .
+      username : username?.toLowerCase() 
+    }
+},
+{
+  $lookup:{ // lookup is used to join the data from other collection , here we are joining the data from subscription collection
+     from :"subscriptions", // from where we want to join the data 
+     localField:"_id",//field of user collection which we want to match with foreign field    
+     foreignField:"channel",//field of subscription collection which we want to match with local field  
+     as:"subscribers"
+    } 
+},
+{
+ $lookup :{
+      from:"subscriptions",
+      localField:"_id",
+      foreignField:"subscriber",
+      as:"subscribedTo"
+
+
+  }
+},
+{
+  $addFields:{ // addfields is used to add new field in the data which we have got from db
+    subscribersCount:{$size:"$subscribers"}, 
+  channelSubscribedTocount:{$size:"subscribedTo"} ,
+  isSubscribed:{
+    $cond:{
+      if:{$in:[req.user?._id,"$subscribers.subscriber"]},
+      then :true,
+      else:false
+    }
+  }
+  }
+},
+{
+  $project:{ // project is used to show the field which we want to show to user
+    fullname:1,
+    username:1,
+    email:1,
+    avatar:1,
+    coverimage:1,
+    subscribersCount:1,
+    channelSubscribedTocount:1,
+    isSubscribed:1
+  }
+}
+
+])
+
+if (!channel?.length){//we used this logic because .length will check if the channel is empty or not
+  throw new ApiError(404,"channel not found")
+}
+return res
+.status(200)
+.json(
+  new ApiResponse(200,channel[0],"user channel fetched successfully"))
+})
+  
 export  {
     registerUser,
     loginUser,
@@ -354,5 +421,6 @@ export  {
     getCurrentUser,
     updateAccountdetails,
     updateUserAvatar,
-    updateUserCoverimage
+    updateUserCoverimage,
+    getUserChannelProfile
 } 
